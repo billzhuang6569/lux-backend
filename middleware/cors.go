@@ -5,40 +5,44 @@ import (
 	"strings"
 )
 
-// CorsMiddleware 处理CORS
-type CorsMiddleware struct {
+// CORSMiddleware CORS中间件
+type CORSMiddleware struct {
 	allowedOrigins []string
 }
 
-// NewCorsMiddleware 创建新的CORS中间件
-func NewCorsMiddleware(allowedOrigins []string) *CorsMiddleware {
-	return &CorsMiddleware{
+// NewCORSMiddleware 创建CORS中间件
+func NewCORSMiddleware(allowedOrigins []string) *CORSMiddleware {
+	return &CORSMiddleware{
 		allowedOrigins: allowedOrigins,
 	}
 }
 
-// Middleware 是CORS中间件函数
-func (m *CorsMiddleware) Middleware(next http.Handler) http.Handler {
+// Middleware 实现中间件
+func (m *CORSMiddleware) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		// 检查来源是否在允许列表中
-		allowed := false
+		// 设置CORS头
 		if origin != "" {
-			for _, allowedOrigin := range m.allowedOrigins {
-				if allowedOrigin == "*" || allowedOrigin == origin {
-					allowed = true
-					break
+			// 检查是否允许该来源
+			allowed := false
+			if contains(m.allowedOrigins, "*") {
+				allowed = true
+			} else {
+				for _, allowedOrigin := range m.allowedOrigins {
+					if allowedOrigin == origin {
+						allowed = true
+						break
+					}
 				}
 			}
-		}
 
-		// 如果来源允许，设置CORS头
-		if allowed {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Max-Age", "86400") // 24小时
+			if allowed {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 		}
 
 		// 处理预检请求
@@ -47,7 +51,16 @@ func (m *CorsMiddleware) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// 调用下一个处理程序
 		next.ServeHTTP(w, r)
 	})
 }
+
+// 检查字符串切片是否包含指定字符串
+func contains(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+} 

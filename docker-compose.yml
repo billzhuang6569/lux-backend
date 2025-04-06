@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  lux-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lux-api
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./downloads:/data/downloads
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - DOWNLOAD_DIR=/data/downloads
+      - MAX_CONCURRENT_DOWNLOADS=5
+      - DOWNLOAD_TIMEOUT=3600
+      - FILE_EXPIRY_TIME=86400
+      - CORS_ORIGINS=*
+    restart: unless-stopped 

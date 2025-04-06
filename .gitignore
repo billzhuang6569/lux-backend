@@ -1,0 +1,23 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+lux-api
+
+# Output of the go coverage tool
+*.out
+
+# Temp files
+*.tmp
+*.temp
+*.swp
+*.swo
+.DS_Store
+
+# Download files
+/downloads/
+
+# Config files containing secrets
+.env 

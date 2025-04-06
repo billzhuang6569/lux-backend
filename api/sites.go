@@ -1,32 +1,38 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/iawia002/lux/service"
 )
 
-// SitesHandler 处理支持的网站请求
-type SitesHandler struct{}
-
-// NewSitesHandler 创建新的网站处理程序
-func NewSitesHandler() *SitesHandler {
-	return &SitesHandler{}
+// SitesController 网站控制器
+type SitesController struct {
+	downloadService *service.DownloadService
 }
 
-// HandleSupportedSites 处理支持的网站请求
-func (h *SitesHandler) HandleSupportedSites(w http.ResponseWriter, r *http.Request) {
-	// 只允许GET方法
+// NewSitesController 创建网站控制器
+func NewSitesController(downloadService *service.DownloadService) *SitesController {
+	return &SitesController{
+		downloadService: downloadService,
+	}
+}
+
+// HandleSupportedSites 处理获取支持的网站请求
+func (c *SitesController) HandleSupportedSites(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		http.Error(w, "仅支持 GET 方法", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 获取支持的网站列表
-	sites := service.GetSupportedSites()
+	// 获取支持的网站
+	sites := c.downloadService.GetSupportedSites()
 
-	// 发送响应
-	sendJSON(w, map[string]interface{}{
+	// 返回响应
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"sites": sites,
-	}, http.StatusOK)
-}
+	})
+} 
