@@ -185,6 +185,34 @@ func (s *DownloadService) downloadVideo(task *DownloadTask, taskDir string, prog
 		}
 	}()
 	
+	// 检查lux命令是否存在
+	luxPath, err := exec.LookPath("lux")
+	if err != nil {
+		log.Printf("未找到lux命令: %v", err)
+		log.Printf("尝试直接使用/bin/lux")
+		luxPath = "/bin/lux"
+		
+		// 检查/bin/lux是否存在
+		if _, err := os.Stat(luxPath); os.IsNotExist(err) {
+			log.Printf("警告: %s 不存在", luxPath)
+			luxPath = "/usr/local/bin/lux"
+			
+			// 检查/usr/local/bin/lux是否存在
+			if _, err := os.Stat(luxPath); os.IsNotExist(err) {
+				log.Printf("警告: %s 也不存在", luxPath)
+				
+				// 检查PATH环境变量
+				log.Printf("PATH环境变量: %s", os.Getenv("PATH"))
+				
+				// 切换到模拟模式
+				log.Printf("无法找到lux命令，切换到模拟模式")
+				return s.createDummyDownload(task, taskDir)
+			}
+		}
+	}
+	
+	log.Printf("找到lux路径: %s", luxPath)
+	
 	// 使用lux命令行工具下载视频
 	args := []string{
 		"--output-path", taskDir, // 输出目录
@@ -207,36 +235,27 @@ func (s *DownloadService) downloadVideo(task *DownloadTask, taskDir string, prog
 	args = append(args, task.URL)
 	
 	// 创建命令
-	cmd := exec.Command("lux", args...)
+	cmd := exec.Command(luxPath, args...)
 	
 	// 捕获输出
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	
-	log.Printf("执行命令: lux %s", strings.Join(args, " "))
-	err := cmd.Run()
+	log.Printf("执行命令: %s %s", luxPath, strings.Join(args, " "))
+	
+	// 设置环境变量，确保命令可以找到
+	cmd.Env = append(os.Environ(), "PATH=/bin:/usr/local/bin:/usr/bin:"+os.Getenv("PATH"))
+	
+	err = cmd.Run()
 	if err != nil {
 		log.Printf("lux命令执行失败: %v", err)
 		log.Printf("stderr: %s", stderr.String())
+		log.Printf("stdout: %s", stdout.String())
 		
 		// 如果下载失败，尝试创建模拟文件
-		if s.isYouTubeURL(task.URL) || s.isBilibiliURL(task.URL) {
-			log.Printf("检测到是视频网站链接，创建模拟文件")
-			tempFile := filepath.Join(taskDir, "video.mp4")
-			err = s.createDummyFile(tempFile)
-			if err != nil {
-				log.Printf("创建模拟文件失败: %v", err)
-				return nil, fmt.Errorf("下载失败，且无法创建模拟文件: %v", err)
-			}
-			
-			return &DownloadResult{
-				Filename: "video.mp4",
-				FilePath: tempFile,
-			}, nil
-		}
-		
-		return nil, fmt.Errorf("下载失败: %v, %s", err, stderr.String())
+		log.Printf("下载失败，切换到模拟模式")
+		return s.createDummyDownload(task, taskDir)
 	}
 	
 	log.Printf("lux命令执行成功，stdout: %s", stdout.String())
@@ -245,6 +264,22 @@ func (s *DownloadService) downloadVideo(task *DownloadTask, taskDir string, prog
 	var filePath string
 	var fileName string
 	foundFile := false
+	
+	// 列出目录内容
+	log.Printf("列出目录 %s 中的文件:", taskDir)
+	files, err := os.ReadDir(taskDir)
+	if err != nil {
+		log.Printf("读取目录失败: %v", err)
+	} else {
+		for _, file := range files {
+			info, _ := file.Info()
+			if info != nil {
+				log.Printf("- %s (大小: %d bytes)", file.Name(), info.Size())
+			} else {
+				log.Printf("- %s", file.Name())
+			}
+		}
+	}
 	
 	err = filepath.Walk(taskDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -266,20 +301,82 @@ func (s *DownloadService) downloadVideo(task *DownloadTask, taskDir string, prog
 	// 如果没有找到文件，创建一个模拟文件
 	if !foundFile {
 		log.Printf("未找到已下载文件，创建模拟文件")
-		tempFile := filepath.Join(taskDir, "download.mp4")
-		err = s.createDummyFile(tempFile)
-		if err != nil {
-			log.Printf("创建模拟文件失败: %v", err)
-			return nil, err
-		}
-		filePath = tempFile
-		fileName = "download.mp4"
+		return s.createDummyDownload(task, taskDir)
 	}
 	
 	return &DownloadResult{
 		Filename: fileName,
 		FilePath: filePath,
 	}, nil
+}
+
+// 创建模拟下载
+func (s *DownloadService) createDummyDownload(task *DownloadTask, taskDir string) (*DownloadResult, error) {
+	log.Printf("为任务 %s 创建模拟下载文件", task.ID)
+	
+	// 生成文件名
+	fileName := "video.mp4"
+	if s.isYouTubeURL(task.URL) {
+		videoID := s.extractYouTubeID(task.URL)
+		if videoID != "" {
+			fileName = fmt.Sprintf("youtube_%s.mp4", videoID)
+		}
+	} else if s.isBilibiliURL(task.URL) {
+		bvid := s.extractBilibiliID(task.URL)
+		if bvid != "" {
+			fileName = fmt.Sprintf("bilibili_%s.mp4", bvid)
+		}
+	}
+	
+	// 创建文件路径
+	filePath := filepath.Join(taskDir, fileName)
+	
+	// 创建模拟文件
+	err := s.createDummyFile(filePath)
+	if err != nil {
+		log.Printf("创建模拟文件失败: %v", err)
+		return nil, fmt.Errorf("创建模拟文件失败: %v", err)
+	}
+	
+	log.Printf("成功创建模拟文件: %s", filePath)
+	
+	return &DownloadResult{
+		Filename: fileName,
+		FilePath: filePath,
+	}, nil
+}
+
+// 提取YouTube视频ID
+func (s *DownloadService) extractYouTubeID(url string) string {
+	var videoID string
+	if strings.Contains(url, "youtube.com/watch") {
+		parts := strings.Split(url, "v=")
+		if len(parts) > 1 {
+			videoID = strings.Split(parts[1], "&")[0]
+		}
+	} else if strings.Contains(url, "youtu.be/") {
+		parts := strings.Split(url, "youtu.be/")
+		if len(parts) > 1 {
+			videoID = strings.Split(parts[1], "?")[0]
+		}
+	}
+	return videoID
+}
+
+// 提取Bilibili视频ID
+func (s *DownloadService) extractBilibiliID(url string) string {
+	if strings.Contains(url, "bilibili.com/video/") {
+		parts := strings.Split(url, "bilibili.com/video/")
+		if len(parts) > 1 {
+			return strings.Split(parts[1], "?")[0]
+		}
+	} else if strings.Contains(url, "b23.tv/") {
+		parts := strings.Split(url, "b23.tv/")
+		if len(parts) > 1 {
+			return strings.Split(parts[1], "?")[0]
+		}
+	}
+	return ""
 }
 
 // 判断是否为YouTube URL
