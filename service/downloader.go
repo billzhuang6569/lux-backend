@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/iawia002/lux/downloader"
-	"github.com/iawia002/lux/extractors"
 )
 
 // ProgressCallback 进度回调函数类型
