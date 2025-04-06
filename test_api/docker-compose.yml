@@ -1,0 +1,32 @@
+version: '3'
+
+services:
+  lux-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
+      - CORS_ORIGINS=*
+      - DOWNLOAD_DIR=/app/downloads
+      - MAX_CONCURRENT_DOWNLOADS=5
+      - DOWNLOAD_TIMEOUT=3600
+      - FILE_EXPIRY_TIME=86400
+      - RATE_LIMIT=60
+    volumes:
+      - ../downloads:/app/downloads
+
+  test-client:
+    image: python:3.9-slim
+    volumes:
+      - ./:/app
+      - ../downloads:/downloads
+    working_dir: /app
+    command: >
+      bash -c "pip install requests && python test_api.py --url 'https://www.bilibili.com/video/BV1MN41127yH'"
+    depends_on:
+      - lux-api
+    network_mode: host
