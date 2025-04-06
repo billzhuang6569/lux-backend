@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -78,6 +79,7 @@ func NewDownloadService(downloadDir string, baseURL string, maxConcurrent int) *
 	// 启动队列处理
 	go service.queueProcessor()
 
+	log.Printf("下载服务已初始化，最大并发下载数：%d", maxConcurrent)
 	return service
 }
 
@@ -88,6 +90,7 @@ func (s *DownloadService) queueProcessor() {
 		if len(s.taskQueue) > 0 && len(s.taskChannel) < s.maxConcurrent {
 			task := s.taskQueue[0]
 			s.taskQueue = s.taskQueue[1:]
+			log.Printf("任务 %s 从队列移至处理通道", task.ID)
 			s.taskChannel <- task
 		}
 		s.queueMutex.Unlock()
@@ -98,6 +101,7 @@ func (s *DownloadService) queueProcessor() {
 // worker 工作线程
 func (s *DownloadService) worker() {
 	for task := range s.taskChannel {
+		log.Printf("开始处理任务: %s, URL: %s", task.ID, task.URL)
 		s.processTask(task)
 	}
 }
@@ -132,10 +136,12 @@ func (s *DownloadService) processTask(task *DownloadTask) {
 	}()
 
 	// 执行下载
+	log.Printf("开始下载视频: %s", task.URL)
 	result, err := s.downloadVideo(task, taskDir, progressChan)
 	close(done)
 
 	if err != nil {
+		log.Printf("任务 %s 下载失败: %v", task.ID, err)
 		s.updateTask(task.ID, func(t *DownloadTask) {
 			t.Status = StatusError
 			t.Message = fmt.Sprintf("下载失败: %v", err)
@@ -146,6 +152,7 @@ func (s *DownloadService) processTask(task *DownloadTask) {
 
 	// 计算下载 URL
 	downloadURL := fmt.Sprintf("%s/downloads/%s/%s", s.baseURL, task.ID, result.Filename)
+	log.Printf("任务 %s 下载完成，文件: %s", task.ID, result.Filename)
 
 	s.updateTask(task.ID, func(t *DownloadTask) {
 		t.Status = StatusCompleted
@@ -188,21 +195,25 @@ func (s *DownloadService) downloadVideo(task *DownloadTask, taskDir string, prog
 		// 360p 相关处理
 	}
 
+	log.Printf("开始提取视频信息: %s", task.URL)
 	// 提取视频信息
 	extractOptions := extractors.Options{
 		Playlist: false,
 	}
 	data, err := extractors.Extract(task.URL, extractOptions)
 	if err != nil {
+		log.Printf("提取视频信息失败: %v", err)
 		return nil, err
 	}
 
 	if len(data) == 0 || len(data[0].Streams) == 0 {
+		log.Printf("没有找到可下载的流")
 		return nil, fmt.Errorf("没有找到可下载的流")
 	}
 
 	// 设置文件名
 	filename := data[0].Title
+	log.Printf("视频信息提取成功，标题: %s", filename)
 
 	// TODO: 修改 lux 下载器添加进度回调
 	// 这里是模拟进度回调的示例，实际生产环境中需要修改 lux 源码
@@ -214,9 +225,11 @@ func (s *DownloadService) downloadVideo(task *DownloadTask, taskDir string, prog
 	}()
 
 	// 执行下载
+	log.Printf("开始执行实际下载")
 	d := downloader.New(options)
 	err = d.Download(data[0])
 	if err != nil {
+		log.Printf("下载执行失败: %v", err)
 		return nil, err
 	}
 
@@ -229,6 +242,7 @@ func (s *DownloadService) downloadVideo(task *DownloadTask, taskDir string, prog
 		if !info.IsDir() {
 			filePath = path
 			filename = info.Name()
+			log.Printf("找到下载文件: %s", filePath)
 		}
 		return nil
 	})
@@ -253,13 +267,17 @@ func (s *DownloadService) CreateTask(url, format, quality string) *DownloadTask 
 		CreatedAt: time.Now(),
 	}
 
+	log.Printf("创建任务 ID: %s, URL: %s", taskID, url)
+
 	s.mutex.Lock()
 	s.tasks[taskID] = task
+	log.Printf("任务 %s 已添加到任务映射，当前任务数量: %d", taskID, len(s.tasks))
 	s.mutex.Unlock()
 
 	// 添加到任务队列
 	s.queueMutex.Lock()
 	s.taskQueue = append(s.taskQueue, task)
+	log.Printf("任务 %s 已添加到队列，当前队列长度: %d", taskID, len(s.taskQueue))
 	s.queueMutex.Unlock()
 
 	return task
@@ -271,7 +289,20 @@ func (s *DownloadService) GetTask(taskID string) (*DownloadTask, bool) {
 	defer s.mutex.RUnlock()
 
 	task, found := s.tasks[taskID]
+	log.Printf("获取任务 %s: %v", taskID, found)
+	if !found {
+		log.Printf("当前所有任务ID: %v", s.getTaskKeys())
+	}
 	return task, found
+}
+
+// 获取所有任务的ID，用于调试
+func (s *DownloadService) getTaskKeys() []string {
+	keys := make([]string, 0, len(s.tasks))
+	for k := range s.tasks {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // ListTasks 列出所有任务
@@ -293,6 +324,9 @@ func (s *DownloadService) updateTask(taskID string, updateFn func(*DownloadTask)
 
 	if task, found := s.tasks[taskID]; found {
 		updateFn(task)
+		log.Printf("任务 %s 状态已更新: %s, 进度: %.1f%%", taskID, task.Status, task.Progress)
+	} else {
+		log.Printf("尝试更新不存在的任务: %s", taskID)
 	}
 }
 
@@ -315,6 +349,7 @@ func (s *DownloadService) CleanupTasks(expiryTime time.Duration) {
 		// 删除文件
 		taskDir := filepath.Join(s.downloadDir, id)
 		os.RemoveAll(taskDir)
+		log.Printf("已清理过期任务: %s", id)
 	}
 	s.mutex.Unlock()
 }
