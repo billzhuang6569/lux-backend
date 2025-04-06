@@ -12,6 +12,9 @@ COPY go.mod go.sum ./
 # 下载依赖
 RUN go mod download
 
+# 确保go.sum文件正确更新
+RUN go mod tidy
+
 # 复制源代码
 COPY . .
 
