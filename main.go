@@ -28,6 +28,7 @@ func main() {
 	// 创建控制器
 	downloadController := api.NewDownloadController(downloadService)
 	sitesController := api.NewSitesController(downloadService)
+	debugController := api.NewDebugController()
 
 	// 设置路由
 	mux := http.NewServeMux()
@@ -36,6 +37,7 @@ func main() {
 	mux.HandleFunc("/api/download", downloadController.HandleDownload)
 	mux.HandleFunc("/api/status/", downloadController.HandleStatus)
 	mux.HandleFunc("/api/supported-sites", sitesController.HandleSupportedSites)
+	mux.HandleFunc("/api/debug", debugController.HandleDebug)
 
 	// 静态文件服务
 	downloadsDir := http.StripPrefix("/downloads/", http.FileServer(http.Dir(cfg.Download.Directory)))
